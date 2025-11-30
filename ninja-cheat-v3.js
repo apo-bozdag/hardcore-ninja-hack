@@ -145,10 +145,16 @@
             const msg = {
                 type: 'SKILL_REQUEST',
                 skillType: type,
-                targetPosition: target || { x: 0, y: 0, z: 0 },
-                direction: target ? this.normalize(target) : { x: 0, y: 0, z: 1 },
                 timestamp: Date.now()
             };
+
+            // Skill tipine göre doğru alan adını kullan
+            if (type === 'TELEPORT' || type === 'HOMING_MISSILE') {
+                msg.target = target || { x: 0, y: 0, z: 0 };
+            } else if (type === 'LASER_BEAM') {
+                msg.direction = target ? this.normalize(target) : { x: 0, y: 0, z: 1 };
+            }
+            // INVINCIBILITY için ekstra alan gerekmiyor
 
             if (this.nm._isHost && this.nm.broadcast) {
                 this.nm.broadcast(msg);

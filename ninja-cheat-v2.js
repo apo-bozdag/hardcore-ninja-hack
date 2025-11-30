@@ -160,10 +160,16 @@
             const msg = {
                 type: 'SKILL_REQUEST',
                 skillType: skillType,
-                targetPosition: target || { x: 0, y: 0, z: 0 },
-                direction: { x: 0, y: 0, z: 1 },
                 timestamp: Date.now()
             };
+
+            // Skill tipine göre doğru alan adını kullan
+            if (skillType === 'TELEPORT' || skillType === 'HOMING_MISSILE') {
+                msg.target = target || { x: 0, y: 0, z: 0 };
+            } else if (skillType === 'LASER_BEAM') {
+                msg.direction = target ? { x: target.x / (Math.sqrt(target.x*target.x + target.z*target.z) || 1), y: 0, z: target.z / (Math.sqrt(target.x*target.x + target.z*target.z) || 1) } : { x: 0, y: 0, z: 1 };
+            }
+            // INVINCIBILITY için ekstra alan gerekmiyor
 
             // HOST ise broadcast, değilse sendToHost
             if (this.isHost && this.nm.broadcast) {
