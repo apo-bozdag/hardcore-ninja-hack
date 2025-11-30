@@ -13,7 +13,7 @@
 (function() {
     'use strict';
 
-    const CHEAT_VERSION = '1.1.0';
+    const CHEAT_VERSION = '1.2.0';
 
     // ==================== UTILITIES ====================
 
@@ -185,6 +185,10 @@
             this.enabled = false;
             this.gameClient = null;
             this.gameServer = null;
+            this.networkManager = null;
+            this.capturedGameState = null;  // NetworkManager'dan yakalanan state
+            this.localPlayerId = null;
+            this.isHost = false;
             this.features = {
                 godMode: false,
                 infiniteCooldown: false,
@@ -198,6 +202,7 @@
             this.speedMultiplier = 2.0;
             this.originalMethods = {};
             this.intervalIds = [];
+            this.messageHooked = false;
         }
 
         init() {
@@ -227,7 +232,12 @@
             if (this.networkManager) {
                 log('NetworkManager bulundu! (window.networkManager)', 'success');
                 log(`  Peer ID: ${this.networkManager.peer?.id || 'N/A'}`, 'info');
-                log(`  isHost: ${this.networkManager._isHost || false}`, 'info');
+                this.isHost = this.networkManager._isHost || false;
+                this.localPlayerId = this.networkManager.peer?.id;
+                log(`  isHost: ${this.isHost}`, 'info');
+
+                // Mesaj hook'u kur
+                this.hookNetworkMessages();
             }
 
             // GameClient
@@ -252,8 +262,112 @@
                 networkManager: !!this.networkManager,
                 gameClient: !!this.gameClient,
                 gameServer: !!this.gameServer,
-                isHost: this.networkManager?._isHost || false
+                isHost: this.isHost
             };
+        }
+
+        /** NetworkManager mesajlarını hook'la - game state'i yakala */
+        hookNetworkMessages() {
+            if (this.messageHooked || !this.networkManager) return;
+
+            const nm = this.networkManager;
+            const self = this;
+
+            // Peer bağlantılarındaki data event'lerini dinle
+            if (nm.peer) {
+                // Mevcut bağlantıları hook'la
+                nm.connections?.forEach(conn => {
+                    this.hookConnection(conn);
+                });
+
+                // Yeni bağlantıları da hook'la
+                const originalOnConnection = nm.peer.on?.bind(nm.peer);
+                if (originalOnConnection) {
+                    nm.peer.on = function(event, callback) {
+                        if (event === 'connection') {
+                            const wrappedCallback = (conn) => {
+                                self.hookConnection(conn);
+                                callback(conn);
+                            };
+                            return originalOnConnection(event, wrappedCallback);
+                        }
+                        return originalOnConnection(event, callback);
+                    };
+                }
+            }
+
+            // broadcast fonksiyonunu hook'la (HOST için)
+            if (nm.broadcast && !nm._originalBroadcast) {
+                nm._originalBroadcast = nm.broadcast.bind(nm);
+                nm.broadcast = (data) => {
+                    this.onMessage(data, 'out');
+                    return nm._originalBroadcast(data);
+                };
+            }
+
+            // sendToHost fonksiyonunu hook'la (CLIENT için)
+            if (nm.sendToHost && !nm._originalSendToHost) {
+                nm._originalSendToHost = nm.sendToHost.bind(nm);
+                nm.sendToHost = (data) => {
+                    this.onMessage(data, 'out');
+                    return nm._originalSendToHost(data);
+                };
+            }
+
+            this.messageHooked = true;
+            log('Network mesajları hook\'landı!', 'success');
+        }
+
+        hookConnection(conn) {
+            if (!conn || conn._cheatHooked) return;
+
+            const self = this;
+            const originalOnData = conn.on?.bind(conn);
+
+            if (originalOnData) {
+                conn.on = function(event, callback) {
+                    if (event === 'data') {
+                        const wrappedCallback = (data) => {
+                            self.onMessage(data, 'in');
+                            callback(data);
+                        };
+                        return originalOnData(event, wrappedCallback);
+                    }
+                    return originalOnData(event, callback);
+                };
+            }
+
+            conn._cheatHooked = true;
+        }
+
+        /** Mesaj yakalandığında */
+        onMessage(data, direction) {
+            if (!data || typeof data !== 'object') return;
+
+            // GAME_STATE_UPDATE mesajını yakala
+            if (data.type === 'GAME_STATE_UPDATE' && data.gameState) {
+                this.capturedGameState = data.gameState;
+            }
+
+            // JOIN_RESPONSE mesajını yakala
+            if (data.type === 'JOIN_RESPONSE' && data.playerId) {
+                this.localPlayerId = data.playerId;
+                log(`Player ID yakalandı: ${data.playerId}`, 'success');
+            }
+        }
+
+        /** Aktif game state'i al */
+        getGameState() {
+            return this.capturedGameState ||
+                   this.gameClient?.currentGameState ||
+                   window._gameState;
+        }
+
+        /** Kendi player ID'mizi al */
+        getLocalPlayerId() {
+            return this.localPlayerId ||
+                   this.gameClient?.localPlayerId ||
+                   this.networkManager?.peer?.id;
         }
 
         // ==================== HOST CHEATS ====================
@@ -365,16 +479,12 @@
          * Infinite Cooldown Bypass - Yetenek bekleme süresini sıfırla
          */
         enableInfiniteCooldown() {
-            const gameState = this.gameClient?.currentGameState;
-            const localId = this.gameClient?.localPlayerId;
-
-            if (!gameState || !localId) {
-                log('Game state bulunamadı!', 'error');
-                return;
-            }
-
             // Cooldown'ları sürekli sıfırla
             const intervalId = setInterval(() => {
+                const gameState = this.getGameState();
+                const localId = this.getLocalPlayerId();
+                if (!gameState || !localId) return;
+
                 const playerState = gameState.players?.[localId];
                 if (playerState) {
                     playerState.teleportCooldown = 0;
@@ -396,14 +506,11 @@
             this.speedMultiplier = multiplier;
 
             // Client-side hareket hızı manipülasyonu
-            // Not: Sunucu pozisyonu doğrulayabilir
-
             const intervalId = setInterval(() => {
-                const gameState = this.gameClient?.currentGameState;
-                const localId = this.gameClient?.localPlayerId;
+                const gameState = this.getGameState();
+                const localId = this.getLocalPlayerId();
 
                 if (gameState?.players?.[localId]) {
-                    // Hız çarpanı uygula (eğer velocity varsa)
                     const player = gameState.players[localId];
                     if (player.velocity) {
                         player.velocity.x *= this.speedMultiplier;
@@ -504,8 +611,8 @@
         }
 
         findNearestEnemy() {
-            const gameState = this.gameClient?.currentGameState;
-            const localId = this.gameClient?.localPlayerId;
+            const gameState = this.getGameState();
+            const localId = this.getLocalPlayerId();
 
             if (!gameState?.players || !localId) return null;
 
@@ -525,7 +632,8 @@
                         );
                         if (dist < nearestDist) {
                             nearestDist = dist;
-                            nearest = new THREE.Vector3(pos.x, pos.y || 0, pos.z);
+                            // THREE.Vector3 yerine basit obje döndür
+                            nearest = { x: pos.x, y: pos.y || 0, z: pos.z };
                         }
                     }
                 }
@@ -622,8 +730,8 @@
         }
 
         getMyPosition() {
-            const gameState = this.gameClient?.currentGameState;
-            const localId = this.gameClient?.localPlayerId;
+            const gameState = this.getGameState();
+            const localId = this.getLocalPlayerId();
             return gameState?.players?.[localId]?.position;
         }
 
@@ -923,10 +1031,11 @@
 
         /** Oyuncuları listele - cheat.players() */
         players() {
-            const state = this.gameClient?.currentGameState;
-            const localId = this.gameClient?.localPlayerId;
+            const state = this.getGameState();
+            const localId = this.getLocalPlayerId();
             if (!state?.players) {
-                log('Oyuncu bulunamadı', 'warn');
+                log('Oyuncu bulunamadı. Oyun state yakalanmadı.', 'warn');
+                log('Biraz bekleyip tekrar deneyin.', 'info');
                 return;
             }
             console.table(
@@ -939,6 +1048,21 @@
                     z: p.position?.z?.toFixed(1)
                 }))
             );
+        }
+
+        /** Game state'i göster */
+        state() {
+            const gs = this.getGameState();
+            if (gs) {
+                console.log('=== GAME STATE ===');
+                console.log('Mode:', gs.gameMode);
+                console.log('Round:', gs.currentRound);
+                console.log('Players:', Object.keys(gs.players || {}).length);
+                return gs;
+            } else {
+                log('Game state henüz yakalanmadı.', 'warn');
+                return null;
+            }
         }
     }
 
