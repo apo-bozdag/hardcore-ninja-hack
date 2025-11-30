@@ -13,7 +13,7 @@
 (function() {
     'use strict';
 
-    const CHEAT_VERSION = '1.0.0';
+    const CHEAT_VERSION = '1.1.0';
 
     // ==================== UTILITIES ====================
 
@@ -510,7 +510,10 @@
             document.addEventListener('keydown', (e) => {
                 if (!this.enabled) return;
 
-                // Numpad tuşları
+                // Input alanlarında çalışmasın
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+                // Numpad tuşları (tam klavye için)
                 switch(e.code) {
                     case 'Numpad1':
                         this.toggleFeature('godMode');
@@ -540,9 +543,60 @@
                         this.toggleAll();
                         break;
                 }
+
+                // %60 klavye için: Shift + rakam tuşları
+                if (e.shiftKey) {
+                    switch(e.code) {
+                        case 'Digit1':
+                            e.preventDefault();
+                            this.toggleFeature('godMode');
+                            break;
+                        case 'Digit2':
+                            e.preventDefault();
+                            this.toggleFeature('infiniteCooldown');
+                            break;
+                        case 'Digit3':
+                            e.preventDefault();
+                            this.toggleFeature('speedHack');
+                            break;
+                        case 'Digit4':
+                            e.preventDefault();
+                            this.toggleFeature('esp');
+                            break;
+                        case 'Digit5':
+                            e.preventDefault();
+                            this.toggleFeature('autoAim');
+                            break;
+                        case 'Digit6':
+                            e.preventDefault();
+                            this.toggleFeature('rapidFire');
+                            break;
+                        case 'Digit7':
+                            e.preventDefault();
+                            this.killAllEnemies();
+                            break;
+                        case 'Digit0':
+                            e.preventDefault();
+                            this.showMenu();
+                            break;
+                    }
+                }
+
+                // Backtick (`) ile menü göster
+                if (e.code === 'Backquote' && !e.shiftKey) {
+                    e.preventDefault();
+                    this.showMenu();
+                }
+
+                // Shift + Backtick ile tümünü aç/kapat
+                if (e.code === 'Backquote' && e.shiftKey) {
+                    e.preventDefault();
+                    this.toggleAll();
+                }
             });
 
-            log('Hotkey\'ler ayarlandı! Numpad tuşlarını kullanın.', 'info');
+            log('Hotkey\'ler ayarlandı!', 'info');
+            log('Shift+1-7: Hileler | `: Menü | Shift+`: Toggle All', 'info');
         }
 
         toggleFeature(feature) {
@@ -610,25 +664,29 @@
 
         showMenu() {
             console.log(`
-%c╔══════════════════════════════════════════════════════════════╗
-║             🥷 HARDCORE NINJA CHEAT v${CHEAT_VERSION} 🥷              ║
-╠══════════════════════════════════════════════════════════════╣
-║  [Numpad 1] God Mode         ${this.features.godMode ? '✅ ON' : '❌ OFF'}  (HOST only)           ║
-║  [Numpad 2] Infinite CD      ${this.features.infiniteCooldown ? '✅ ON' : '❌ OFF'}                       ║
-║  [Numpad 3] Speed Hack       ${this.features.speedHack ? '✅ ON' : '❌ OFF'}  (${this.speedMultiplier}x)                  ║
-║  [Numpad 4] ESP              ${this.features.esp ? '✅ ON' : '❌ OFF'}                       ║
-║  [Numpad 5] Auto Aim         ${this.features.autoAim ? '✅ ON' : '❌ OFF'}                       ║
-║  [Numpad 6] Rapid Fire       ${this.features.rapidFire ? '✅ ON' : '❌ OFF'}                       ║
-║  [Numpad 7] Kill All         (HOST only)                     ║
-║  [Numpad 0] Show Menu                                        ║
-║  [Insert]   Toggle All                                       ║
-╠══════════════════════════════════════════════════════════════╣
-║  Komutlar:                                                   ║
-║  cheat.teleportTo(x, z)  - Koordinata ışınlan                ║
-║  cheat.killAllEnemies()  - Tüm düşmanları öldür              ║
-║  cheat.enableSpeedHack(3) - 3x hız                           ║
-╚══════════════════════════════════════════════════════════════╝`,
-            'color: #00ff00; font-family: monospace; font-size: 12px;');
+%c╔════════════════════════════════════════════════════════════════════╗
+║               🥷 HARDCORE NINJA CHEAT v${CHEAT_VERSION} 🥷                  ║
+╠════════════════════════════════════════════════════════════════════╣
+║  HOTKEYS (%60 klavye uyumlu)                                       ║
+║  ─────────────────────────────────────────────────────────────     ║
+║  Shift+1  God Mode         ${this.features.godMode ? '✅ ON ' : '❌ OFF'}  │  Shift+5  Auto Aim    ${this.features.autoAim ? '✅ ON ' : '❌ OFF'}  ║
+║  Shift+2  Infinite CD      ${this.features.infiniteCooldown ? '✅ ON ' : '❌ OFF'}  │  Shift+6  Rapid Fire  ${this.features.rapidFire ? '✅ ON ' : '❌ OFF'}  ║
+║  Shift+3  Speed Hack       ${this.features.speedHack ? '✅ ON ' : '❌ OFF'}  │  Shift+7  Kill All    ⚡     ║
+║  Shift+4  ESP              ${this.features.esp ? '✅ ON ' : '❌ OFF'}  │  \`         Menü             ║
+╠════════════════════════════════════════════════════════════════════╣
+║  CONSOLE KOMUTLARI (cheat.X)                                       ║
+║  ─────────────────────────────────────────────────────────────     ║
+║  .god() .g()   → God Mode      │  .aim() .a()   → Auto Aim        ║
+║  .esp() .e()   → ESP/Wallhack  │  .fire() .f()  → Rapid Fire      ║
+║  .speed(N) .s()→ Hız (Nx)      │  .cd() .c()    → Infinite CD     ║
+║  .ohk()        → One Hit Kill  │  .kill() .k()  → Kill All        ║
+║  ─────────────────────────────────────────────────────────────     ║
+║  .tp(x,z)      → Işınlan       │  .players()    → Oyuncu listesi  ║
+║  .status()     → Aktif hileler │  .debug()      → Debug bilgisi   ║
+║  .on() / .off()→ Tümünü aç/kapat                                   ║
+║  .help() .h()  → Bu menü                                           ║
+╚════════════════════════════════════════════════════════════════════╝`,
+            'color: #00ff00; font-family: monospace; font-size: 11px;');
         }
 
         // ==================== DEBUG ====================
@@ -658,6 +716,106 @@
                     console.log(`  ${id}: HP=${player.health}, Pos=(${player.position?.x?.toFixed(2)}, ${player.position?.z?.toFixed(2)})`);
                 });
             }
+        }
+
+        // ==================== KISA KOMUTLAR ====================
+        // Console'dan kolay erişim için
+
+        /** God Mode toggle - cheat.god() veya cheat.g() */
+        god() { this.toggleFeature('godMode'); return this.features.godMode ? 'ON' : 'OFF'; }
+        g() { return this.god(); }
+
+        /** ESP toggle - cheat.esp() veya cheat.e() */
+        esp() { this.toggleFeature('esp'); return this.features.esp ? 'ON' : 'OFF'; }
+        e() { return this.esp(); }
+
+        /** Speed Hack toggle - cheat.speed() veya cheat.s() */
+        speed(multiplier) {
+            if (multiplier && !this.features.speedHack) {
+                this.enableSpeedHack(multiplier);
+            } else {
+                this.toggleFeature('speedHack');
+            }
+            return this.features.speedHack ? `ON (${this.speedMultiplier}x)` : 'OFF';
+        }
+        s(m) { return this.speed(m); }
+
+        /** Auto Aim toggle - cheat.aim() veya cheat.a() */
+        aim() { this.toggleFeature('autoAim'); return this.features.autoAim ? 'ON' : 'OFF'; }
+        a() { return this.aim(); }
+
+        /** Infinite Cooldown toggle - cheat.cd() veya cheat.c() */
+        cd() { this.toggleFeature('infiniteCooldown'); return this.features.infiniteCooldown ? 'ON' : 'OFF'; }
+        c() { return this.cd(); }
+
+        /** Rapid Fire toggle - cheat.fire() veya cheat.f() */
+        fire() { this.toggleFeature('rapidFire'); return this.features.rapidFire ? 'ON' : 'OFF'; }
+        f() { return this.fire(); }
+
+        /** One Hit Kill toggle - cheat.ohk() */
+        ohk() {
+            if (!this.features.oneHitKill) {
+                this.enableOneHitKill();
+            } else {
+                this.features.oneHitKill = false;
+                log('One Hit Kill KAPALI', 'warn');
+            }
+            return this.features.oneHitKill ? 'ON' : 'OFF';
+        }
+
+        /** Kill All - cheat.kill() veya cheat.k() */
+        kill() { this.killAllEnemies(); }
+        k() { return this.kill(); }
+
+        /** Teleport - cheat.tp(x, z) */
+        tp(x, z) { this.teleportTo(x, z); }
+
+        /** Tümünü aç - cheat.on() */
+        on() {
+            this.enabled = true;
+            log('Cheat sistemi AKTİF', 'success');
+            return 'Cheat ON';
+        }
+
+        /** Tümünü kapat - cheat.off() */
+        off() {
+            this.cleanup();
+            this.enabled = false;
+            log('Tüm hileler KAPALI', 'warn');
+            return 'Cheat OFF';
+        }
+
+        /** Yardım - cheat.help() veya cheat.h() */
+        help() { this.showMenu(); }
+        h() { return this.help(); }
+
+        /** Durum - cheat.status() */
+        status() {
+            const active = Object.entries(this.features)
+                .filter(([k, v]) => v)
+                .map(([k]) => k);
+            console.log('Aktif hileler:', active.length ? active.join(', ') : 'Yok');
+            return active;
+        }
+
+        /** Oyuncuları listele - cheat.players() */
+        players() {
+            const state = this.gameClient?.currentGameState;
+            const localId = this.gameClient?.localPlayerId;
+            if (!state?.players) {
+                log('Oyuncu bulunamadı', 'warn');
+                return;
+            }
+            console.table(
+                Object.entries(state.players).map(([id, p]) => ({
+                    id: id.substring(0, 8) + '...',
+                    isMe: id === localId ? '👤' : '',
+                    name: p.name || 'N/A',
+                    health: p.health,
+                    x: p.position?.x?.toFixed(1),
+                    z: p.position?.z?.toFixed(1)
+                }))
+            );
         }
     }
 

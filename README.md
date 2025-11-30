@@ -31,40 +31,67 @@ Ana script yüklendikten sonra `ninja-cheat-advanced.js` içeriğini yapıştır
 
 ## ⌨️ Kısayol Tuşları
 
+### %60 Klavye (Shift + Rakam)
+
 | Tuş | Özellik | Not |
 |-----|---------|-----|
-| `Numpad 1` | God Mode | HOST only |
-| `Numpad 2` | Infinite Cooldown | Görsel |
-| `Numpad 3` | Speed Hack | 2x hız |
-| `Numpad 4` | ESP | Duvar arkası görüş |
-| `Numpad 5` | Auto Aim | Otomatik nişan |
-| `Numpad 6` | Rapid Fire | Hızlı ateş |
-| `Numpad 7` | Kill All | HOST only |
-| `Numpad 0` | Menü Göster | - |
-| `Insert` | Tümünü Aç/Kapat | - |
+| `Shift + 1` | God Mode | HOST only |
+| `Shift + 2` | Infinite Cooldown | Görsel |
+| `Shift + 3` | Speed Hack | 2x hız |
+| `Shift + 4` | ESP | Duvar arkası görüş |
+| `Shift + 5` | Auto Aim | Otomatik nişan |
+| `Shift + 6` | Rapid Fire | Hızlı ateş |
+| `Shift + 7` | Kill All | HOST only |
+| `` ` `` (backtick) | Menü Göster | - |
+| `Shift + `` ` `` | Tümünü Aç/Kapat | - |
+
+### Numpad (Tam Klavye)
+
+| Tuş | Özellik |
+|-----|---------|
+| `Numpad 1-7` | Hileler |
+| `Numpad 0` | Menü |
+| `Insert` | Toggle All |
 
 ## 💻 Konsol Komutları
 
-### Temel
+### Kısa Komutlar (YENİ!)
 
 ```javascript
-// Menüyü göster
+// Toggle komutları (aç/kapat)
+cheat.god()    // veya cheat.g()  → God Mode
+cheat.esp()    // veya cheat.e()  → ESP/Wallhack
+cheat.speed()  // veya cheat.s()  → Speed Hack
+cheat.speed(3) // veya cheat.s(3) → 3x hız ile aç
+cheat.aim()    // veya cheat.a()  → Auto Aim
+cheat.cd()     // veya cheat.c()  → Infinite Cooldown
+cheat.fire()   // veya cheat.f()  → Rapid Fire
+cheat.ohk()    // One Hit Kill
+
+// Aksiyon komutları
+cheat.kill()   // veya cheat.k()  → Tüm düşmanları öldür
+cheat.tp(10, 20)                  → (10, 20) koordinatına ışınlan
+
+// Yardımcı komutlar
+cheat.help()   // veya cheat.h()  → Menüyü göster
+cheat.status()                    → Aktif hileleri listele
+cheat.players()                   → Oyuncu tablosu
+cheat.debug()                     → Debug bilgisi
+
+// Kontrol
+cheat.on()     // Cheat sistemini aç
+cheat.off()    // Tüm hileleri kapat
+```
+
+### Uzun Komutlar
+
+```javascript
 cheat.showMenu()
-
-// Debug bilgisi
 cheat.debug()
-
-// Oyun durumunu göster
 cheat.printGameState()
-
-// Koordinata ışınlan
 cheat.teleportTo(10, 20)
-
-// Tüm düşmanları öldür (HOST only)
 cheat.killAllEnemies()
-
-// Hız çarpanını ayarla
-cheat.enableSpeedHack(3) // 3x hız
+cheat.enableSpeedHack(3)
 ```
 
 ### Gelişmiş (Advanced modül gerekli)
