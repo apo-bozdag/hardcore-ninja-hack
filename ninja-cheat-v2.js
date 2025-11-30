@@ -58,28 +58,49 @@
             if (this.hooked) return;
             const self = this;
 
-            // PeerJS data connection'larını hook'la
-            const peer = this.nm.peer;
-            if (!peer) return;
-
-            // Mevcut bağlantıları hook'la
-            if (peer._connections) {
-                Object.values(peer._connections).forEach(conns => {
-                    conns.forEach(conn => this.hookConn(conn));
-                });
+            // HOST için: broadcast fonksiyonunu hook'la
+            if (this.nm.broadcast && !this.nm._origBroadcast) {
+                this.nm._origBroadcast = this.nm.broadcast.bind(this.nm);
+                this.nm.broadcast = (data) => {
+                    self.onData(data, 'out');
+                    return self.nm._origBroadcast(data);
+                };
+                log('Broadcast hook aktif', 'success');
             }
 
-            // Yeni bağlantıları hook'la
-            const origOn = peer.on.bind(peer);
-            peer.on = (event, cb) => {
-                if (event === 'connection') {
-                    return origOn(event, (conn) => {
-                        self.hookConn(conn);
-                        cb(conn);
+            // CLIENT için: sendToHost fonksiyonunu hook'la
+            if (this.nm.sendToHost && !this.nm._origSendToHost) {
+                this.nm._origSendToHost = this.nm.sendToHost.bind(this.nm);
+                this.nm.sendToHost = (data) => {
+                    self.onData(data, 'out');
+                    return self.nm._origSendToHost(data);
+                };
+            }
+
+            // PeerJS data connection'larını hook'la (gelen mesajlar için)
+            const peer = this.nm.peer;
+            if (peer) {
+                // Mevcut bağlantıları hook'la
+                if (peer._connections) {
+                    Object.values(peer._connections).forEach(conns => {
+                        if (Array.isArray(conns)) {
+                            conns.forEach(conn => this.hookConn(conn));
+                        }
                     });
                 }
-                return origOn(event, cb);
-            };
+
+                // Yeni bağlantıları hook'la
+                const origOn = peer.on.bind(peer);
+                peer.on = (event, cb) => {
+                    if (event === 'connection') {
+                        return origOn(event, (conn) => {
+                            self.hookConn(conn);
+                            cb(conn);
+                        });
+                    }
+                    return origOn(event, cb);
+                };
+            }
 
             this.hooked = true;
             log('Network hook aktif', 'success');
@@ -104,12 +125,26 @@
             conn._hooked = true;
         }
 
-        onData(data) {
+        onData(data, direction = 'in') {
             if (!data) return;
 
             // Game state'i yakala
-            if (data.type === 'GAME_STATE_UPDATE' && data.gameState) {
-                this.gameState = data.gameState;
+            if (data.type === 'GAME_STATE_UPDATE') {
+                if (data.gameState) {
+                    this.gameState = data.gameState;
+                } else if (data.state) {
+                    this.gameState = data.state;
+                }
+                // İlk yakalamada log
+                if (!this._stateLogged) {
+                    log('Game state yakalandı!', 'success');
+                    this._stateLogged = true;
+                }
+            }
+
+            // Direkt state objesi de olabilir
+            if (data.players && data.gameMode !== undefined) {
+                this.gameState = data;
             }
         }
 
