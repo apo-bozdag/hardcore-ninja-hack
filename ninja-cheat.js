@@ -44,50 +44,134 @@
         // Yöntem 1: Window üzerinde expose edilmiş objeler
         if (window.gameClient) return window.gameClient;
         if (window.game) return window.game;
+        if (window._gameClient) return window._gameClient;
 
-        // Yöntem 2: React state içinde ara
+        // Yöntem 2: NetworkManager üzerinden (oyun bunu expose ediyor!)
+        if (window.networkManager) {
+            // NetworkManager'dan GameClient'a referans bulmaya çalış
+            const nm = window.networkManager;
+            // GameClient referansını bul - parent scope veya callback'lerden
+            for (const key of Object.keys(nm)) {
+                const val = nm[key];
+                if (val && typeof val === 'object' && val.renderer && val.entityManager) {
+                    return val;
+                }
+            }
+        }
+
+        // Yöntem 3: React Fiber - daha derin arama
         const fiber = findReactFiberRoot();
         if (fiber) {
-            let current = fiber;
-            while (current) {
-                if (current.memoizedState?.gameClient) {
-                    return current.memoizedState.gameClient;
+            const queue = [fiber];
+            const visited = new Set();
+
+            while (queue.length > 0) {
+                const node = queue.shift();
+                if (!node || visited.has(node)) continue;
+                visited.add(node);
+
+                // memoizedState zincirini tara (React hooks)
+                let hookState = node.memoizedState;
+                while (hookState) {
+                    // useState hook'larını kontrol et
+                    if (hookState.memoizedState && typeof hookState.memoizedState === 'object') {
+                        const state = hookState.memoizedState;
+                        // GameClient özellikleri
+                        if (state.renderer && state.networkManager) return state;
+                        if (state.entityManager && state.inputManager) return state;
+                        // Array ise [value, setter] şeklinde
+                        if (Array.isArray(state) && state[0]?.renderer) return state[0];
+                    }
+                    hookState = hookState.next;
                 }
-                if (current.stateNode?.gameClient) {
-                    return current.stateNode.gameClient;
-                }
-                current = current.child || current.sibling || current.return;
+
+                // Alt düğümleri ekle
+                if (node.child) queue.push(node.child);
+                if (node.sibling) queue.push(node.sibling);
             }
         }
 
-        // Yöntem 3: Global değişkenleri tara
+        // Yöntem 4: Global değişkenleri tara
         for (const key of Object.keys(window)) {
-            const obj = window[key];
-            if (obj && typeof obj === 'object') {
-                if (obj.networkManager && obj.renderer && obj.inputManager) {
+            if (key.startsWith('_') || key.startsWith('webkit')) continue;
+            try {
+                const obj = window[key];
+                if (obj && typeof obj === 'object') {
+                    if (obj.networkManager && obj.renderer && obj.inputManager) {
+                        return obj;
+                    }
+                    if (obj.entityManager && obj.currentGameState) {
+                        return obj;
+                    }
+                }
+            } catch(e) {}
+        }
+
+        return null;
+    }
+
+    function findNetworkManager() {
+        // Oyun bunu window.networkManager olarak expose ediyor!
+        if (window.networkManager) return window.networkManager;
+        if (window._networkManager) return window._networkManager;
+
+        // Fallback - peer objesi ara
+        for (const key of Object.keys(window)) {
+            try {
+                const obj = window[key];
+                if (obj && obj.peer && obj.connections !== undefined) {
                     return obj;
                 }
-            }
+            } catch(e) {}
         }
-
         return null;
     }
 
     function findGameServer() {
         // GameServer HOST tarafında çalışır
         if (window.gameServer) return window.gameServer;
+        if (window._gameServer) return window._gameServer;
+
+        // NetworkManager üzerinden (isHost kontrolü)
+        const nm = findNetworkManager();
+        if (nm && nm._isHost) {
+            // Host ise GameServer da aynı scope'ta olabilir
+            for (const key of Object.keys(window)) {
+                try {
+                    const obj = window[key];
+                    if (obj && obj.entityManager?.players && obj.networkManager === nm) {
+                        return obj;
+                    }
+                } catch(e) {}
+            }
+        }
 
         const client = findGameClient();
         if (client?.gameServer) return client.gameServer;
 
-        for (const key of Object.keys(window)) {
-            const obj = window[key];
-            if (obj && typeof obj === 'object') {
-                if (obj.entityManager?.players && obj.networkManager) {
-                    if (obj.handlePlayerInput || obj.handleSkillRequest) {
-                        return obj;
+        // React Fiber'dan ara
+        const fiber = findReactFiberRoot();
+        if (fiber) {
+            const queue = [fiber];
+            const visited = new Set();
+
+            while (queue.length > 0) {
+                const node = queue.shift();
+                if (!node || visited.has(node)) continue;
+                visited.add(node);
+
+                let hookState = node.memoizedState;
+                while (hookState) {
+                    if (hookState.memoizedState && typeof hookState.memoizedState === 'object') {
+                        const state = hookState.memoizedState;
+                        if (state.entityManager?.players && state.handleSkillRequest) return state;
+                        if (Array.isArray(state) && state[0]?.entityManager?.players) return state[0];
                     }
+                    hookState = hookState.next;
                 }
+
+                if (node.child) queue.push(node.child);
+                if (node.sibling) queue.push(node.sibling);
             }
         }
 
@@ -119,26 +203,57 @@
         init() {
             log(`Hardcore Ninja Cheat v${CHEAT_VERSION} başlatılıyor...`);
 
-            this.gameClient = findGameClient();
-            this.gameServer = findGameServer();
-
-            if (this.gameClient) {
-                log('GameClient bulundu!', 'success');
-            } else {
-                log('GameClient bulunamadı. Oyun yüklendikten sonra tekrar deneyin.', 'warn');
-            }
-
-            if (this.gameServer) {
-                log('GameServer bulundu! (HOST modu aktif)', 'success');
-            } else {
-                log('GameServer bulunamadı. HOST değilsiniz veya henüz yüklenmedi.', 'warn');
-            }
+            this.rescan();
 
             this.enabled = true;
             this.setupHotkeys();
             this.showMenu();
 
+            // Eğer objeler bulunamadıysa 2 saniye sonra tekrar dene
+            if (!this.gameClient && !this.networkManager) {
+                log('Objeler bulunamadı, 2 saniye sonra tekrar taranacak...', 'warn');
+                setTimeout(() => this.rescan(), 2000);
+            }
+
             return this;
+        }
+
+        /** Oyun objelerini yeniden tara */
+        rescan() {
+            log('Oyun objeleri taranıyor...', 'info');
+
+            // NetworkManager - oyun bunu window.networkManager olarak expose ediyor!
+            this.networkManager = findNetworkManager();
+            if (this.networkManager) {
+                log('NetworkManager bulundu! (window.networkManager)', 'success');
+                log(`  Peer ID: ${this.networkManager.peer?.id || 'N/A'}`, 'info');
+                log(`  isHost: ${this.networkManager._isHost || false}`, 'info');
+            }
+
+            // GameClient
+            this.gameClient = findGameClient();
+            if (this.gameClient) {
+                log('GameClient bulundu!', 'success');
+            }
+
+            // GameServer (sadece HOST için)
+            this.gameServer = findGameServer();
+            if (this.gameServer) {
+                log('GameServer bulundu! (HOST modu aktif)', 'success');
+            }
+
+            // Özet
+            if (!this.gameClient && !this.networkManager) {
+                log('Hiçbir oyun objesi bulunamadı!', 'error');
+                log('Oyunun tam yüklenmesini bekleyin ve cheat.rescan() çalıştırın', 'warn');
+            }
+
+            return {
+                networkManager: !!this.networkManager,
+                gameClient: !!this.gameClient,
+                gameServer: !!this.gameServer,
+                isHost: this.networkManager?._isHost || false
+            };
         }
 
         // ==================== HOST CHEATS ====================
@@ -419,14 +534,19 @@
             return nearest;
         }
 
+        /** NetworkManager'ı al */
+        getNetworkManager() {
+            return this.networkManager || this.gameClient?.networkManager || window.networkManager;
+        }
+
         /**
          * Teleport Hack - İstediğin yere ışınlan
          */
         teleportTo(x, z) {
-            const networkManager = this.gameClient?.networkManager;
+            const networkManager = this.getNetworkManager();
 
             if (!networkManager) {
-                log('NetworkManager bulunamadı!', 'error');
+                log('NetworkManager bulunamadı! cheat.rescan() deneyin.', 'error');
                 return;
             }
 
@@ -438,7 +558,7 @@
                 timestamp: Date.now()
             };
 
-            if (networkManager.isHost) {
+            if (networkManager._isHost || networkManager.isHost) {
                 networkManager.broadcast(message);
             } else {
                 networkManager.sendToHost(message);
@@ -451,15 +571,18 @@
          * Rapid Fire - Hızlı ateş (spam yetenekler)
          */
         enableRapidFire() {
-            const networkManager = this.gameClient?.networkManager;
+            const networkManager = this.getNetworkManager();
 
             if (!networkManager) {
-                log('NetworkManager bulunamadı!', 'error');
+                log('NetworkManager bulunamadı! cheat.rescan() deneyin.', 'error');
                 return;
             }
 
             // Her 100ms'de skill request spam'le
             const intervalId = setInterval(() => {
+                const nm = this.getNetworkManager();
+                if (!nm) return;
+
                 const target = this.findNearestEnemy();
                 if (!target) return;
 
@@ -486,10 +609,10 @@
                     timestamp: Date.now()
                 };
 
-                if (networkManager.isHost) {
-                    networkManager.broadcast(message);
+                if (nm._isHost || nm.isHost) {
+                    nm.broadcast(message);
                 } else {
-                    networkManager.sendToHost(message);
+                    nm.sendToHost(message);
                 }
             }, 100);
 
