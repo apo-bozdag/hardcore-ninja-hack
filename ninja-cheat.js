@@ -344,15 +344,41 @@
         onMessage(data, direction) {
             if (!data || typeof data !== 'object') return;
 
-            // GAME_STATE_UPDATE mesajını yakala
+            // GAME_STATE_UPDATE mesajını yakala ve manipüle et
             if (data.type === 'GAME_STATE_UPDATE' && data.gameState) {
                 this.capturedGameState = data.gameState;
+
+                // HOST hileleri - mesajı manipüle et
+                if (this.isHost && direction === 'out') {
+                    this.manipulateGameState(data.gameState);
+                }
             }
 
             // JOIN_RESPONSE mesajını yakala
             if (data.type === 'JOIN_RESPONSE' && data.playerId) {
                 this.localPlayerId = data.playerId;
                 log(`Player ID yakalandı: ${data.playerId}`, 'success');
+            }
+        }
+
+        /** Game state'i manipüle et (HOST only) */
+        manipulateGameState(gameState) {
+            if (!gameState?.players) return;
+
+            const myId = this.getLocalPlayerId();
+
+            // God Mode - kendi sağlığımızı 100'de tut
+            if (this.features.godMode && gameState.players[myId]) {
+                gameState.players[myId].health = 100;
+            }
+
+            // One Hit Kill - rakiplerin sağlığını düşür
+            if (this.features.oneHitKill) {
+                Object.entries(gameState.players).forEach(([id, player]) => {
+                    if (id !== myId && player.health > 0) {
+                        player.health = 1;
+                    }
+                });
             }
         }
 
@@ -374,103 +400,76 @@
 
         /**
          * God Mode - Hasar almayı engeller (HOST only)
+         * Mesaj manipülasyonu ile çalışır - gameServer gerekmez
          */
         enableGodMode() {
-            if (!this.gameServer) {
+            if (!this.isHost) {
                 log('God Mode için HOST olmalısınız!', 'error');
                 return;
             }
 
-            const entityManager = this.gameServer.entityManager;
-            if (!entityManager) return;
-
-            const localId = this.gameClient?.localPlayerId;
-            if (!localId) return;
-
-            const player = entityManager.players?.get(localId);
-            if (player) {
-                // Original takeDamage metodunu sakla
-                if (!this.originalMethods.takeDamage) {
-                    this.originalMethods.takeDamage = player.takeDamage.bind(player);
-                }
-
-                // takeDamage'ı override et
-                player.takeDamage = (damage, attackerId) => {
-                    log(`Hasar engellendi: ${damage} (from ${attackerId})`);
-                    return; // Hasar almayı engelle
-                };
-
-                // Sağlığı maksimumda tut
-                player.health = player.maxHealth || 100;
-
-                this.features.godMode = true;
-                log('God Mode AKTİF!', 'success');
-            }
+            this.features.godMode = true;
+            log('God Mode AKTİF! (Mesaj manipülasyonu)', 'success');
         }
 
         disableGodMode() {
-            if (this.originalMethods.takeDamage && this.gameServer) {
-                const localId = this.gameClient?.localPlayerId;
-                const player = this.gameServer.entityManager?.players?.get(localId);
-                if (player) {
-                    player.takeDamage = this.originalMethods.takeDamage;
-                }
-            }
             this.features.godMode = false;
             log('God Mode KAPALI', 'warn');
         }
 
         /**
          * One Hit Kill - Tek vuruşta öldür (HOST only)
+         * Mesaj manipülasyonu ile çalışır
          */
         enableOneHitKill() {
-            if (!this.gameServer) {
+            if (!this.isHost) {
                 log('One Hit Kill için HOST olmalısınız!', 'error');
                 return;
             }
 
-            const entityManager = this.gameServer.entityManager;
-            const localId = this.gameClient?.localPlayerId;
-
-            if (entityManager?.players) {
-                entityManager.players.forEach((player, id) => {
-                    if (id !== localId) {
-                        // Rakiplerin maxHealth'ini düşür
-                        if (!player._originalMaxHealth) {
-                            player._originalMaxHealth = player.maxHealth;
-                        }
-                        player.maxHealth = 1;
-                        player.health = Math.min(player.health, 1);
-                    }
-                });
-            }
-
             this.features.oneHitKill = true;
-            log('One Hit Kill AKTİF!', 'success');
+            log('One Hit Kill AKTİF! (Rakipler 1 HP)', 'success');
         }
 
         /**
          * Tüm rakipleri öldür (HOST only)
+         * PLAYER_DIED mesajı göndererek çalışır
          */
         killAllEnemies() {
-            if (!this.gameServer) {
+            if (!this.isHost) {
                 log('Kill All için HOST olmalısınız!', 'error');
                 return;
             }
 
-            const entityManager = this.gameServer.entityManager;
-            const localId = this.gameClient?.localPlayerId;
+            const nm = this.getNetworkManager();
+            const gameState = this.getGameState();
+            const myId = this.getLocalPlayerId();
 
-            if (entityManager?.players) {
-                entityManager.players.forEach((player, id) => {
-                    if (id !== localId && player.health > 0) {
-                        player.takeDamage(9999, localId);
-                        log(`Oyuncu öldürüldü: ${id}`);
-                    }
-                });
+            if (!nm || !gameState?.players) {
+                log('Game state bulunamadı!', 'error');
+                return;
             }
 
-            log('Tüm rakipler öldürüldü!', 'success');
+            let killed = 0;
+            Object.entries(gameState.players).forEach(([id, player]) => {
+                if (id !== myId && player.health > 0) {
+                    // PLAYER_DIED mesajı gönder
+                    const message = {
+                        type: 'PLAYER_DIED',
+                        playerId: id,
+                        attackerId: myId,
+                        timestamp: Date.now()
+                    };
+                    nm.broadcast(message);
+                    killed++;
+                }
+            });
+
+            if (killed > 0) {
+                log(`${killed} oyuncu öldürüldü!`, 'success');
+            } else {
+                log('Öldürülecek oyuncu yok', 'warn');
+            }
         }
 
         // ==================== CLIENT CHEATS ====================
